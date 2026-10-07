@@ -1,41 +1,49 @@
+from email import message
+
 import uvicorn
+import uuid
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict
 from uuid import UUID
 
+
+from bd.create_test_date import create_test_date
+from bd.bd import BD
+
+
 app = FastAPI()
 
-test = [
-    {
-        "wallet_uuid": 1,
-        "wallet_summ": 1100,
-    },
-    {
-        "wallet_uuid": 2,
-        "wallet_summ": 1200,
-    },
-    {
-        "wallet_uuid": 3,
-        "wallet_summ": 1300,
-    },
-]
+date_test_bd = create_test_date()
+with open("test_date.txt", "w") as file:
+    for date in date_test_bd:
+        id = date['id']
+        balance = date['wallet_balance']
 
-def check_id_and_return_date(wallet_uuid: int) -> Dict[str, int] | None:
+        file.write(f"{id}\t{balance}\n")
+
+bd_sql = BD()
+bd_sql.create_table()
+bd_sql.add_date(date_test_bd)
+
+
+def check_id_and_return_date(wallet_uuid: UUID):
     """
     Функция для проверки наличия кошелька в базе данных и возврат из нее данных,
     если они там есть
     :param wallet_uuid: id кошелька для поиска и выдачи данных
     :return: Возвращает данные кошелька или False если их нет -> Dict[str, str | str]
     """
-    for line in test:
-        if line["wallet_uuid"] == wallet_uuid:
-            return {
-                "status": 200,
-                "id": line["wallet_uuid"],
-                "balance": line["wallet_summ"],
-            }
+    wallet = bd_sql.get_wallet(wallet_uuid)
+
+    if wallet:
+        id, balance = wallet
+        return {
+            "status": 200,
+            "id": UUID(bytes=id),
+            "balance": balance
+        }
     else:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="wallet not found")
 
@@ -51,7 +59,7 @@ def change_wallet(wallet_uuid: int, operation: str, amount: int) -> Dict[str, in
 @app.get("/api/v1/wallets/{wallet_uuid}",
          summary="Получить информацию о кошельке",
          tags=['Кошелёк'])
-async def get_wallet(wallet_uuid: int):
+async def get_wallet(wallet_uuid: UUID):
     date = check_id_and_return_date(wallet_uuid)
 
     return date
@@ -66,27 +74,26 @@ class WalletChange(BaseModel):
     path="/api/v1/wallets/{wallet_uuid}/operation",
     summary="Внести деньги в кошелёк",
     tags=['Кошелёк'])
-async def post_operation_wallets(wallet_uuid:  int, request: WalletChange):
+async def post_operation_wallets(wallet_uuid:  UUID, request: WalletChange):
     wallet = check_id_and_return_date(wallet_uuid)
 
+    answer = None
     method, summa = request.operation_type, request.amount
+
     if method == "DEPOSIT":
-        wallet['balance'] += summa
+        answer = bd_sql.change_wallet(wallet_uuid, summa, True)
     elif method == "WITHDRAW":
-        if wallet["balance"] >= summa:
-            wallet["balance"] =  wallet["balance"] - summa
-            return {
-                "status": 200,
-                "id": wallet['wallet_uuid'],
-                "balance": summa,
-            }
-        else:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Unprocessable Entity")
-    else:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Unprocessable Entity")
+        answer = bd_sql.change_wallet(wallet_uuid, summa, False)
 
 
-    return wallet
+    if answer is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Unprocessable Entity",
+        )
+
+
+    return check_id_and_return_date(wallet_uuid)
 
 
 

@@ -14,3 +14,13 @@ def test_post_operation_correct() -> None:
     response = client.post("/api/v1/wallets/2/operation", json=date)
 
     assert response.status_code == 200
+
+
+def test_post_operation_wrong_amount() -> None:
+    date = {
+        "operation_type": "WITHDRAW",
+        "amount": -100,
+    }
+
+    response = client.post("/api/v1/wallets/2/operation", json=date)
+    assert response.status_code == 400
